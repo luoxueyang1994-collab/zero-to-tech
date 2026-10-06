@@ -6,6 +6,11 @@ from snownlp import SnowNLP
 from datetime import datetime, timezone
 from uuid import uuid4
 from storage import save_record, get_history, init_db
+import os
+from dotenv import load_dotenv
+
+load_dotenv()  # 加载 .env 文件
+ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "").split(",")  # 从环境变量中获取允许的来源列表
 
 init_db()  # 初始化数据库，创建表格
 
@@ -13,7 +18,7 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_methods=["GET", "POST"],
     allow_headers=["Content-Type"],
     allow_credentials=True,
