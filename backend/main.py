@@ -1,9 +1,10 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, Response
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 from pypinyin import lazy_pinyin,Style
 from snownlp import SnowNLP
 from datetime import datetime, timezone
+from uuid import uuid4
 from storage import save_record, get_history, init_db
 
 init_db()  # 初始化数据库，创建表格
@@ -14,6 +15,8 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=["http://localhost:3000"],
     allow_methods=["GET", "POST"],
+    allow_headers=["Content-Type"],
+    allow_credentials=True,
 )
 
 profile = {
@@ -35,6 +38,19 @@ profile = {
 class AnalyzeRequest(BaseModel):
     text: str
 
+
+def get_session_id(request: Request, response: Response):
+    session_id = request.cookies.get("session_id")
+    if not session_id:
+        session_id = uuid4().hex
+        response.set_cookie(
+            key="session_id",
+            value=session_id,
+            httponly=True,
+            samesite="lax",
+        )
+    return session_id
+
 @app.get("/api/profile")
 def get_profile():
     return profile
@@ -48,20 +64,21 @@ def score_label(score):
         return "中性"
 
 @app.post("/api/analyze")
-def analyze(req: AnalyzeRequest):
+def analyze(req: AnalyzeRequest, request: Request, response: Response):
+    sid = get_session_id(request, response)
     text = req.text
-    score = round(SnowNLP(text).sentiments, 2)                    # 真模型打的分
+    score = round(SnowNLP(text).sentiments, 2)
     result = {
         "text": text,
         "score": score,
         "label": score_label(score),
-        "pinyin": " ".join(lazy_pinyin(text, style=Style.TONE)),  # 真拼音，带声调
-        "created_at": datetime.now(timezone.utc).isoformat()    
+        "pinyin": " ".join(lazy_pinyin(text, style=Style.TONE)),
+        "created_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
     }
-    save_record(result)  # 保存记录到历史文件
-    return result
+    save_record(sid, result)          # 存的时候盖上这个会话的记号
+    return result                     # ← 返回体一个字没变，session_id 只走 cookie
 
 @app.get("/api/history")
-def history():
-    return get_history(10)  # 返回最近 10 条记录
-
+def history(request: Request, response: Response, limit: int = 10):
+    sid = get_session_id(request, response)
+    return get_history(sid, limit)    # 只回这个会话自己的
